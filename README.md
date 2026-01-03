@@ -1,4 +1,4 @@
-# FOCASON AWS STARTER
+# Focason AWS Starter
 
 ![Architecture](architecture.jpg "Architecture")
 
