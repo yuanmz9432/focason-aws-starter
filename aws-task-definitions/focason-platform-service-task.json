@@ -1,0 +1,100 @@
+{
+  "family": "focason-platform-service-task",
+  "containerDefinitions": [
+    {
+      "cpu": 512,
+      "environment": [
+        {
+          "name": "SERVER_PORT",
+          "value": "8081"
+        },
+        {
+          "name": "APPLICATION_NAME",
+          "value": "focason-platform-service"
+        },
+        {
+          "name": "INSTANCE_HOSTNAME",
+          "value": "focason-platform-service.focason-cloud.internal"
+        },
+        {
+          "name": "EUREKA_HOSTNAME",
+          "value": "focason-service-registry.focason-cloud.internal"
+        },
+        {
+          "name": "RABBITMQ_HOST",
+          "value": "rabbitmq-server.focason-cloud.internal"
+        },
+        {
+          "name": "RABBITMQ_DEFAULT_PASS",
+          "value": "guest"
+        },
+        {
+          "name": "RABBITMQ_DEFAULT_USER",
+          "value": "guest"
+        },
+        {
+          "name": "CONFIG_SERVICE_ID",
+          "value": "focason-config-server"
+        },
+        {
+          "name": "CLOUD_CONFIG_NAME",
+          "value": "focason-platform-service"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "value": "INFO"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "value": "development"
+        }
+      ],
+      "environmentFiles": [],
+      "essential": true,
+      "image": "442426889980.dkr.ecr.ap-northeast-1.amazonaws.com/focason-cloud/focason-platform-service:latest",
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/focason-cloud-services/focason-platform-service",
+          "mode": "non-blocking",
+          "awslogs-create-group": "true",
+          "max-buffer-size": "25m",
+          "awslogs-region": "ap-northeast-1",
+          "awslogs-stream-prefix": "ecs"
+        },
+        "secretOptions": []
+      },
+      "memory": 1024,
+      "memoryReservation": 1024,
+      "mountPoints": [],
+      "name": "focason-platform-service-container",
+      "portMappings": [
+        {
+          "appProtocol": "http",
+          "containerPort": 8081,
+          "hostPort": 8081,
+          "name": "focason-platform-service-8081-tcp",
+          "protocol": "tcp"
+        }
+      ],
+      "systemControls": [],
+      "ulimits": [],
+      "volumesFrom": []
+    }
+  ],
+  "executionRoleArn": "arn:aws:iam::442426889980:role/focason-cloud-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::442426889980:role/focason-cloud-ecs-task-role",
+  "networkMode": "awsvpc",
+  "volumes": [],
+  "placementConstraints": [],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "enableFaultInjection": false
+}
