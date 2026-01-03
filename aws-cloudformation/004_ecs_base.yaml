@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Focason Microservices Architecture By ECS (Eureka, RabbitMQ, Configure, Gateway)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project name prefix
+
+Resources:
+  # -------------------------------------------------
+  # Service Discovery
+  # -------------------------------------------------
+  EurekaServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: eureka-server
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+
+  RabbitMQServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: rabbitmq-server
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+
+  ConfigureServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: configure-server
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+
+  GatewayServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: gateway-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+
+  # -------------------------------------------------
+  # Eureka Services
+  # -------------------------------------------------
+  EurekaService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-eureka-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        Autoconfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Split [",", Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"]
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-eureka-server-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt EurekaServiceDiscovery.Arn
+
+  # -------------------------------------------------
+  # RabbitMQ Services
+  # -------------------------------------------------
+  RabbitMQServer:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-rabbitmq-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Split [",", Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"]
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-rabbitmq-server-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt RabbitMQServiceDiscovery.Arn
+
+  # -------------------------------------------------
+  # Configure Services
+  # -------------------------------------------------
+  ConfigureService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-configure-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Split [",", Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"]
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-configure-server-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ConfigureServiceDiscovery.Arn
+
+  # -------------------------------------------------
+  # Gateway Services
+  # -------------------------------------------------
+  GatewayService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-gateway-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Split [",", Fn::ImportValue: !Sub "${ProjectName}-public-subnets"]
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-gateway-sg"
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub "${ProjectName}-gateway-tg"
+          ContainerName: !Sub "${ProjectName}-gateway-container"
+          ContainerPort: 80
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-gateway-service-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt GatewayServiceDiscovery.Arn
+
+# -------------------------------------------------
+# Outputs
+# -------------------------------------------------
+Outputs:
+  EurekaServiceName:
+    Description: ECS Service Name for Eureka
+    Value: !Ref EurekaService
+    Export:
+      Name: !Sub "${ProjectName}-eureka-service"
+
+  RabbitMQServerName:
+    Description: ECS Service Name for RabbitMQ
+    Value: !Ref RabbitMQServer
+    Export:
+      Name: !Sub "${ProjectName}-rabbitmq-server"
+
+  ConfigureServiceName:
+    Description: ECS Service Name for Configure
+    Value: !Ref ConfigureService
+    Export:
+      Name: !Sub "${ProjectName}-configure-service"
+
+  GatewayServiceName:
+    Description: ECS Service Name for Gateway
+    Value: !Ref GatewayService
+    Export:
+      Name: !Sub "${ProjectName}-gateway-service"

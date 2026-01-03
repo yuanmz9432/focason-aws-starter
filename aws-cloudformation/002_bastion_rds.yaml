@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS MySQL with Bastion Host in VPC
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project prefix used to name all resources
+
+  DBUsername:
+    Type: String
+    Default: admin
+    Description: RDS master username
+
+  DBPassword:
+    Type: String
+    Default: password
+    NoEcho: true
+    MinLength: 8
+    Description: RDS master password
+
+  DBName:
+    Type: String
+    Default: focason
+    Description: Initial database name
+
+Resources:
+  # -------------------------------------------------
+  # DB Subnet Group
+  # -------------------------------------------------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS MySQL
+      SubnetIds: !Split [",", Fn::ImportValue: !Sub "${ProjectName}-db-private-subnets"]
+
+  # -------------------------------------------------
+  # RDS MySQL Instance
+  # -------------------------------------------------
+  MysqlRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-mysql-instance"
+      Engine: mysql
+      EngineVersion: "8.0.42"
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: 20
+      StorageType: gp3
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      MultiAZ: false
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - Fn::ImportValue: !Sub "${ProjectName}-database-sg"
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      BackupRetentionPeriod: 7
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: MyPrivateRDS
+
+  # -------------------------------------------------
+  # Route53 CNAME Record for RDS (Fixed Domain)
+  # -------------------------------------------------
+  RDSDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: focason.com.        # 👈 你的主域名（注意要以 . 结尾）
+      Name: mysql-rds.focason.com.        # 👈 你希望访问 RDS 的固定域名
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt MysqlRDSInstance.Endpoint.Address  # 动态获取 RDS 实例的实际 Endpoint
+
+  # -------------------------------------------------
+  # Bastion Host (EC2) KeyPair
+  # -------------------------------------------------
+  KeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub "${ProjectName}-keypair"
+      PublicKeyMaterial: |
+        ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC0R7HUiqtFR4wN2s8jSBPxLmgLLs8fvT7gSdYQO/j1YtD77Jpn6/VSzQWgrFF1FbQlA0eRmpjuhEuk8ahbj9xPkpds5QWYJLqsrKj8YqzCFwcdhBRQFCOW0ZgluJa7GGulwAuHCyixBsLwxNLJ/wzKZoSnNYiyEaxAGOZ/tgIsxumXrtLuLYHJMxFDOM2QWKj+ycdf+xmB51SvLqC22kmKKVh2Dg3yKQcmArRoRWQmJm9jcIsXEXN1CPOUa9awWiTSxsdLwHEa3WQ0PzBd9iolybjCUugBVzg7Lkk0RFWBRTb0xUyGbopDMV5IxPY2pxX6VczcJuG986xvMLqkKIONs7aSjWklljQLE65RELurOQrJ1Ye8Gbu2Kde9hPueB6MTY+GlLJ4P/uLfl8bnVwPxEhBBEj/DLmqWjVBJhFGsUThj/NJbkaAX6JuaYRo2UM4dYS6fIqiJa+zB4pfCnnbcx2OyjaquAgpLLxt8xAXiYR32uptQG5syTn2Ygi57bRN1sryxfXUjkD7FCHM/1xmb1tJTNiU7oqx1dN2TukGqSOcj0VK8NObrZbrbnIeoDdlujXjskFhLe2Lpw8svfUmDSjwB7RwtFAc4DUnQRBpvi1IiMC2PWE+ISlgw6qSFhXHww7ftZeSiMW/D3sBx4ECtc7DsFLormT2bDWPZQmmPfw== yuanm@DESKTOP-7NUJ1TO
+
+  # -------------------------------------------------
+  # Bastion Host (EC2)
+  # -------------------------------------------------
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPair
+      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Select [0, !Split [",", Fn::ImportValue: !Sub "${ProjectName}-public-subnets"]]
+          GroupSet:
+            - Fn::ImportValue: !Sub "${ProjectName}-bastion-sg"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-bastion-instance"
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: The RDS instance endpoint (connect through SSH tunnel)
+    Value: !GetAtt MysqlRDSInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${ProjectName}-db-endpoint"
+
+  MysqlRDSDomain:
+    Description: Fixed RDS DNS record for internal/external connections
+    Value: mysql-rds.focason.com
+    Export:
+      Name: !Sub "${ProjectName}-mysql-rds-domain"
+
+  BastionPublicIP:
+    Description: Public IP of the Bastion host
+    Value: !GetAtt BastionInstance.PublicIp
+    Export:
+      Name: !Sub "${ProjectName}-bastion-public-ip"
+
+  KeyPairName:
+    Description: EC2 keypair name
+    Value: !Ref KeyPair
+    Export:
+      Name: !Sub "${ProjectName}-keypair"

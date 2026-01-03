@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Nuxt Frontend Hosting Stack for focason.com
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: focason.com
+
+Resources:
+  # === S3 bucket for Nuxt static site ===
+  NuxtS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${DomainName}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: false
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: false
+      Tags:
+        - Key: Project
+          Value: Focason
+
+  FrontendOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: focason-oac
+        Description: OAC for CloudFront → S3
+        SigningProtocol: sigv4
+        SigningBehavior: always
+        OriginAccessControlOriginType: s3
+
+  # === CloudFront distribution ===
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - DomainName: !GetAtt NuxtS3Bucket.RegionalDomainName
+            Id: S3Origin
+            S3OriginConfig: {}
+            OriginAccessControlId: !Ref FrontendOriginAccessControl
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          ForwardedValues:
+            QueryString: false
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+        ViewerCertificate:
+          AcmCertificateArn: "arn:aws:acm:us-east-1:442426889980:certificate/295a0095-a4e8-4196-81fa-8e336b49058a"
+          SslSupportMethod: sni-only
+        Aliases:
+          - !Sub "${DomainName}"
+        PriceClass: PriceClass_100
+
+  # 让 CloudFront 访问 S3 的 IAM 角色（而不是 public-read）
+  NuxtS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref NuxtS3Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontAccess
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${NuxtS3Bucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
+
+  # === Route53 Record for CloudFront ===
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Sub "${DomainName}."
+      Name: !Sub "${DomainName}"
+      Type: A
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront fixed zone ID
+        DNSName: !GetAtt FrontendDistribution.DomainName
+
+Outputs:
+  WebsiteURL:
+    Description: S3 Website URL
+    Value: !GetAtt NuxtS3Bucket.WebsiteURL
+  CloudFrontDomain:
+    Description: CloudFront Distribution Domain
+    Value: !GetAtt FrontendDistribution.DomainName

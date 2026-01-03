@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECS Cluster for Focason Microservices Architecture.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project name prefix
+
+Resources:
+  # -------------------------------------------------
+  # CloudWatch Log Group
+  # -------------------------------------------------
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}-services"
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-log-group"
+
+  # -------------------------------------------------
+  # ECS Task Execution Role
+  # -------------------------------------------------
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ecs-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        # AWS 提供的官方托管策略
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-ecs-custom-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # 允许任务访问 ECR（拉取镜像）
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: "*"
+              # 允许访问 Parameter Store（如读取配置）
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                Resource: "*"
+              # 允许访问 Secrets Manager（例如数据库密码）
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              # 允许写 CloudWatch Logs
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-ecs-execution-role"
+
+  # -------------------------------------------------
+  # ECS Task Role (for application use)
+  # -------------------------------------------------
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ecs-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-app-access-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # 允许应用程序访问 S3（例如下载配置或上传文件）
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                Resource: "*"
+              # 允许访问 DynamoDB 或其他内部资源时可以扩展这里
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-ecs-task-role"
+
+  # -------------------------------------------------
+  # ECS Cluster
+  # -------------------------------------------------
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-ecs-cluster"
+      CapacityProviders:
+        - FARGATE
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-ecs-cluster"
+
+# -------------------------------------------------
+# Outputs
+# -------------------------------------------------
+Outputs:
+  CloudWatchLogGroupName:
+    Description: CloudWatch Log Group name for ECS services
+    Value: !Ref CloudWatchLogGroup
+    Export:
+      Name: !Sub "${ProjectName}-log-group"
+
+  ECSTaskExecutionRoleArn:
+    Description: ARN of ECS Task Execution Role
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-ecs-execution-role"
+
+  ECSTaskRoleArn:
+    Description: ARN of ECS Task Role (for in-container use)
+    Value: !GetAtt ECSTaskRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-ecs-task-role"
+
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub "${ProjectName}-ecs-cluster"
