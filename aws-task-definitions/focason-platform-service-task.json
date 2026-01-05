@@ -47,6 +47,78 @@
         {
           "name": "ENVIRONMENT",
           "value": "development"
+        },
+        {
+          "name": "DB_HOST",
+          "value": "focason-cloud-mysql-instance.cb4q2wwsssn6.ap-northeast-1.rds.amazonaws.com"
+        },
+        {
+          "name": "DB_PORT",
+          "value": "3306"
+        },
+        {
+          "name": "DB_SCHEMA",
+          "value": "focason"
+        },
+        {
+          "name": "DB_USERNAME",
+          "value": "root"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "value": "password"
+        },
+        {
+          "name": "CLOUD_CONFIG_NAME",
+          "value": "focason-platform-service"
+        },
+        {
+          "name": "GITHUB_BRANCH",
+          "value": "main"
+        },
+        {
+          "name": "GITHUB_PROFILE",
+          "value": "default"
+        },
+        {
+          "name": "MAIL_HOST",
+          "value": "mail.privateemail.com"
+        },
+        {
+          "name": "MAIL_PORT",
+          "value": "587"
+        },
+        {
+          "name": "MAIL_USERNAME",
+          "value": ""
+        },
+        {
+          "name": "MAIL_PASSWORD",
+          "value": ""
+        },
+        {
+          "name": "REDIS_HOST",
+          "value": ""
+        },
+        {
+          "name": "EMAIL_SEND_BY",
+          "value": "Focason Lab Team"
+        },
+        {
+          "name": "EMAIL_SEND_FROM",
+          "value": "noreply@focason.com"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "ap-northeast-1"
+        },
+        {
+          "name": "AWS_BUCKET_NAME",
+          "value": "focason-cloud-file"
+        },
+        {
+          "name": "PRESIGNED_URL_VALID_MINUTES",
+          "value": "1440"
         }
       ],
       "environmentFiles": [],

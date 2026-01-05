@@ -331,7 +331,70 @@ aws ecs list-tasks --cluster focason-cloud-cluster
 * Ensure ECR images are accessible
 * Check security group rules allow necessary traffic
 
-### Step 7: Create Frontend Service (NUXT)
+### Step 7: Create AWS MQ and SQS Services
+
+This step creates Amazon MQ (message broker) and SQS (Simple Queue Service) for asynchronous messaging.
+
+1. Navigate to AWS CloudFormation Console
+2. Create a new stack using `aws-cloudformation/006_mq_sqs.yaml`
+3. Configure stack parameters:
+   * **ProjectName**: Must match previous steps (default: `focason-cloud`)
+   * **MQEngineType**: Choose `ActiveMQ` or `RabbitMQ` (default: `ActiveMQ`)
+   * **MQInstanceType**: Instance size (default: `mq.t3.micro` for development)
+     * Options: `mq.t3.micro`, `mq.t3.small`, `mq.m5.large`, `mq.m5.xlarge`
+   * **MQUsername**: Admin username for MQ broker (default: `admin`)
+   * **MQPassword**: Admin password (minimum 12 characters, keep secure!)
+   * **MQDeploymentMode**: 
+     * `SINGLE_INSTANCE` for development (default)
+     * `ACTIVE_STANDBY_MULTI_AZ` for production (high availability)
+   * **EnableMQPublicAccess**: Set to `false` (default, recommended for security)
+4. Review and create the stack
+5. Wait for stack creation to complete (approximately 10-15 minutes for MQ broker)
+
+**What this step creates**:
+* **AWS MQ Broker**: Message broker (ActiveMQ or RabbitMQ)
+  * ActiveMQ ports: 61617 (OpenWire), 61614 (STOMP), 61613 (AMQP), 61616 (MQTT)
+  * RabbitMQ ports: 5671 (AMQP), 15671 (Management UI)
+* **SQS Queues**:
+  * Standard Queue: For general message processing
+  * FIFO Queue: For ordered message processing
+  * Dead Letter Queues: For failed messages (both standard and FIFO)
+
+**Verification**:
+```bash
+# Verify MQ broker was created
+aws mq list-brokers --query "BrokerSummaries[?contains(BrokerName, 'focason')]"
+
+# Get MQ broker details
+aws mq describe-broker --broker-id <broker-id>
+
+# List SQS queues
+aws sqs list-queues --queue-name-prefix focason-cloud
+
+# Get queue URLs
+aws sqs get-queue-url --queue-name focason-cloud-standard-queue
+aws sqs get-queue-url --queue-name focason-cloud-fifo-queue.fifo
+```
+
+**Important Notes**:
+* Save the MQ broker endpoint and credentials - you'll need them to connect applications
+* MQ broker is deployed in private subnets and only accessible from within the VPC
+* SQS queues are configured with VPC-based access policies
+* Dead letter queues are automatically configured with maxReceiveCount of 3
+* For production, consider using `ACTIVE_STANDBY_MULTI_AZ` deployment mode
+
+**Connecting to MQ**:
+* **ActiveMQ Console**: Access via bastion host port forwarding (port 8162)
+* **RabbitMQ Management**: Access via bastion host port forwarding (port 15671)
+* **Application Connection**: Use the MQ endpoint from stack outputs
+
+**Troubleshooting**:
+* If MQ broker creation fails, check CloudFormation events for specific errors
+* Verify security group rules allow necessary ports
+* Ensure subnets are in different availability zones (required for multi-AZ deployment)
+* Check IAM permissions for MQ and SQS access
+
+### Step 8: Create Frontend Service (NUXT)
 
 1. Navigate to AWS CloudFormation Console
 2. Create a new stack using `aws-cloudformation/005_nuxt_static_hosting.yaml`
@@ -346,6 +409,15 @@ aws ecs list-tasks --cluster focason-cloud-cluster
    ```
    
    **Note**: Ensure the deployment script is configured with the correct S3 bucket name and region.
+
+**Verification**:
+```bash
+# Verify S3 bucket was created
+aws s3 ls | grep focason
+
+# Verify CloudFront distribution (if created)
+aws cloudfront list-distributions --query "DistributionList.Items[?contains(Comment, 'focason')]"
+```
 
 **Verification**:
 ```bash

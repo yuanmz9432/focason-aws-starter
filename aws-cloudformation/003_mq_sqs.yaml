@@ -1,0 +1,323 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS MQ (RabbitMQ) and SQS (Simple Queue Service) for Focason Cloud
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project prefix used to name all resources
+
+  MQInstanceType:
+    Type: String
+    Default: mq.t3.micro
+    AllowedValues:
+      - mq.t3.micro
+      - mq.t3.small
+      - mq.m5.large
+      - mq.m5.xlarge
+    Description: MQ broker instance type
+
+  MQUsername:
+    Type: String
+    Default: admin
+    Description: MQ broker admin username
+
+  MQPassword:
+    Type: String
+    Default: LnFhsXYur8nM
+    NoEcho: true
+    MinLength: 12
+    Description: MQ broker admin password (minimum 12 characters)
+
+  EnableMQPublicAccess:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable public accessibility for MQ broker (not recommended for production)
+
+Conditions:
+  EnablePublicAccess:
+    Fn::Equals:
+      - !Ref EnableMQPublicAccess
+      - 'true'
+
+Resources:
+  # -------------------------------------------------
+  # Security Group for AWS MQ (RabbitMQ)
+  # -------------------------------------------------
+  MQSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-mq-sg"
+      GroupDescription: Security group for AWS MQ RabbitMQ broker
+      VpcId:
+        Fn::ImportValue: !Sub "${ProjectName}-vpc-id"
+      SecurityGroupIngress:
+        # Allow RabbitMQ AMQP port
+        - IpProtocol: tcp
+          FromPort: 5671
+          ToPort: 5671
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+          Description: RabbitMQ AMQP
+        # Allow RabbitMQ Management UI port
+        - IpProtocol: tcp
+          FromPort: 15671
+          ToPort: 15671
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+          Description: RabbitMQ Management UI
+        # Allow RabbitMQ Management UI from bastion
+        - IpProtocol: tcp
+          FromPort: 15671
+          ToPort: 15671
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub "${ProjectName}-bastion-sg"
+          Description: RabbitMQ Management UI from Bastion
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-mq-sg"
+
+  # -------------------------------------------------
+  # AWS MQ Broker (RabbitMQ)
+  # -------------------------------------------------
+  MQBroker:
+    Type: AWS::AmazonMQ::Broker
+    Properties:
+      BrokerName: !Sub "${ProjectName}-mq-broker"
+      HostInstanceType: !Ref MQInstanceType
+      DeploymentMode: SINGLE_INSTANCE
+      EngineType: RabbitMQ
+      EngineVersion: '3.13'
+      PubliclyAccessible: !If
+        - EnablePublicAccess
+        - true
+        - false
+      SubnetIds: [!Select [0, !Split [",", Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"]]]
+      SecurityGroups:
+        - !Ref MQSecurityGroup
+      Users:
+        - Username: !Ref MQUsername
+          Password: !Ref MQPassword
+          Groups:
+            - admin
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-mq-broker"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Engine
+          Value: RabbitMQ
+
+  # -------------------------------------------------
+  # SQS Queues
+  # -------------------------------------------------
+
+  # Email Send Queue
+  EmailSendQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: focason-email-send-queue
+      VisibilityTimeout: 30
+      MessageRetentionPeriod: 345600  # 4 days
+      ReceiveMessageWaitTimeSeconds: 20  # Long polling
+      RedrivePolicy: !Sub |
+        {
+          "deadLetterTargetArn": "${EmailSendDLQ.Arn}",
+          "maxReceiveCount": 3
+        }
+      Tags:
+        - Key: Name
+          Value: focason-email-send-queue
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: email-sending
+
+  # Email Send Dead Letter Queue
+  EmailSendDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: focason-email-send-queue-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Name
+          Value: focason-email-send-queue-dlq
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: email-sending-dlq
+
+  # Notification Send Queue
+  NotificationSendQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: focason-notification-send-queue
+      VisibilityTimeout: 30
+      MessageRetentionPeriod: 345600  # 4 days
+      ReceiveMessageWaitTimeSeconds: 20  # Long polling
+      RedrivePolicy: !Sub |
+        {
+          "deadLetterTargetArn": "${NotificationSendDLQ.Arn}",
+          "maxReceiveCount": 3
+        }
+      Tags:
+        - Key: Name
+          Value: focason-notification-send-queue
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: notification-sending
+
+  # Notification Send Dead Letter Queue
+  NotificationSendDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: focason-notification-send-queue-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Name
+          Value: focason-notification-send-queue-dlq
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: notification-sending-dlq
+
+  # Queue Policy for Email Send Queue
+  EmailSendQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref EmailSendQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowECSAndLambdaAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - sqs:SendMessage
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+            Resource: !GetAtt EmailSendQueue.Arn
+            Condition:
+              StringEquals:
+                'aws:SourceVpc':
+                  Fn::ImportValue: !Sub "${ProjectName}-vpc-id"
+
+  # Queue Policy for Notification Send Queue
+  NotificationSendQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref NotificationSendQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowECSAndLambdaAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - sqs:SendMessage
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+            Resource: !GetAtt NotificationSendQueue.Arn
+            Condition:
+              StringEquals:
+                'aws:SourceVpc':
+                  Fn::ImportValue: !Sub "${ProjectName}-vpc-id"
+
+Outputs:
+  # AWS MQ Outputs
+  MQBrokerId:
+    Description: AWS MQ Broker ID
+    Value: !Ref MQBroker
+    Export:
+      Name: !Sub "${ProjectName}-mq-broker-id"
+
+  MQBrokerArn:
+    Description: AWS MQ Broker ARN
+    Value: !GetAtt MQBroker.Arn
+    Export:
+      Name: !Sub "${ProjectName}-mq-broker-arn"
+
+  MQBrokerAmqpEndpoint:
+    Description: AWS MQ Broker AMQP Endpoint (RabbitMQ)
+    Value: !Select [0, !GetAtt MQBroker.AmqpEndpoints]
+    Export:
+      Name: !Sub "${ProjectName}-mq-broker-amqp-endpoint"
+
+  MQBrokerConsoleURL:
+    Description: AWS MQ Broker Management Console URL (RabbitMQ)
+    Value: !Sub "https://${MQBroker}.mq.${AWS::Region}.amazonaws.com:15671"
+    Export:
+      Name: !Sub "${ProjectName}-mq-broker-console-url"
+
+  MQBrokerUsername:
+    Description: AWS MQ Broker Username
+    Value: !Ref MQUsername
+    Export:
+      Name: !Sub "${ProjectName}-mq-broker-username"
+
+  MQSecurityGroupId:
+    Description: Security Group ID for MQ
+    Value: !Ref MQSecurityGroup
+    Export:
+      Name: !Sub "${ProjectName}-mq-sg"
+
+  # SQS Outputs
+  EmailSendQueueUrl:
+    Description: Email Send Queue URL
+    Value: !Ref EmailSendQueue
+    Export:
+      Name: !Sub "${ProjectName}-email-send-queue-url"
+
+  EmailSendQueueArn:
+    Description: Email Send Queue ARN
+    Value: !GetAtt EmailSendQueue.Arn
+    Export:
+      Name: !Sub "${ProjectName}-email-send-queue-arn"
+
+  EmailSendDLQUrl:
+    Description: Email Send Dead Letter Queue URL
+    Value: !Ref EmailSendDLQ
+    Export:
+      Name: !Sub "${ProjectName}-email-send-dlq-url"
+
+  EmailSendDLQArn:
+    Description: Email Send Dead Letter Queue ARN
+    Value: !GetAtt EmailSendDLQ.Arn
+    Export:
+      Name: !Sub "${ProjectName}-email-send-dlq-arn"
+
+  NotificationSendQueueUrl:
+    Description: Notification Send Queue URL
+    Value: !Ref NotificationSendQueue
+    Export:
+      Name: !Sub "${ProjectName}-notification-send-queue-url"
+
+  NotificationSendQueueArn:
+    Description: Notification Send Queue ARN
+    Value: !GetAtt NotificationSendQueue.Arn
+    Export:
+      Name: !Sub "${ProjectName}-notification-send-queue-arn"
+
+  NotificationSendDLQUrl:
+    Description: Notification Send Dead Letter Queue URL
+    Value: !Ref NotificationSendDLQ
+    Export:
+      Name: !Sub "${ProjectName}-notification-send-dlq-url"
+
+  NotificationSendDLQArn:
+    Description: Notification Send Dead Letter Queue ARN
+    Value: !GetAtt NotificationSendDLQ.Arn
+    Export:
+      Name: !Sub "${ProjectName}-notification-send-dlq-arn"
