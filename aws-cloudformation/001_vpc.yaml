@@ -1,15 +1,25 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >
-  Create a VPC with 2 Public Subnets and 2 Private Subnets.
+  Create a VPC with 2 Public Subnets and 4 Private Subnets.
   Public subnets have internet access via Internet Gateway.
   Private subnets access internet via NAT Gateway.
   All subnets are interconnected via routing.
+  This template includes security groups, ALB, and service discovery.
 
 Parameters:
   ProjectName:
     Type: String
     Default: focason-cloud
     Description: Project prefix used to name all resources
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (dev, staging, prod)
 
   VpcCIDR:
     Type: String
@@ -19,27 +29,87 @@ Parameters:
   PublicSubnet1CIDR:
     Type: String
     Default: 10.0.1.0/24
-    Description: For bastion, alb, nat gateway.
+    Description: CIDR block for public subnet 1 (bastion, ALB, NAT gateway)
+
   PublicSubnet2CIDR:
     Type: String
     Default: 10.0.2.0/24
-    Description: For bastion, alb, nat gateway.
+    Description: CIDR block for public subnet 2 (bastion, ALB, NAT gateway)
+
   PrivateSubnet1CIDR:
     Type: String
     Default: 10.0.3.0/24
-    Description: For ecs services.
+    Description: CIDR block for private subnet 1 (ECS services)
+
   PrivateSubnet2CIDR:
     Type: String
     Default: 10.0.4.0/24
-    Description: For ecs services.
+    Description: CIDR block for private subnet 2 (ECS services)
+
   PrivateSubnet3CIDR:
     Type: String
     Default: 10.0.5.0/24
-    Description: For database.
+    Description: CIDR block for private subnet 3 (database)
+
   PrivateSubnet4CIDR:
     Type: String
     Default: 10.0.6.0/24
-    Description: For database.
+    Description: CIDR block for private subnet 4 (database)
+
+  # Security Parameters
+  AllowedSSHCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to SSH to bastion host (use specific IP for production)
+
+  AllowedHTTPCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to access HTTP/HTTPS (use specific IP for production)
+
+  # ALB Parameters
+  EnableHTTPS:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable HTTPS listener with SSL certificate
+
+  SSLCertificateArn:
+    Type: String
+    Default: ''
+    Description: ARN of the SSL certificate in ACM (required if EnableHTTPS is true)
+
+  HealthCheckPath:
+    Type: String
+    Default: /actuator/health
+    Description: Health check path for target group
+
+  # VPC Flow Logs
+  EnableVPCFlowLogs:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable VPC Flow Logs for network monitoring
+
+Conditions:
+  IsProd:
+    Fn::Equals:
+      - !Ref Environment
+      - prod
+
+  EnableHTTPSListener:
+    Fn::Equals:
+      - !Ref EnableHTTPS
+      - 'true'
+
+  CreateFlowLogs:
+    Fn::Equals:
+      - !Ref EnableVPCFlowLogs
+      - 'true'
 
 Resources:
   # -----------------------
@@ -54,6 +124,10 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-vpc"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -----------------------
   # Internet Gateway
@@ -64,6 +138,10 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-igw"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -----------------------
   # Connect Internet Gateway to VPC
@@ -89,6 +167,12 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-public-subnet-1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Type
+          Value: public
 
   PublicSubnet2:
     Type: AWS::EC2::Subnet
@@ -102,6 +186,12 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-public-subnet-2"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Type
+          Value: public
 
   # -----------------------
   # Private Subnets
@@ -118,6 +208,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-subnet-1"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Type
+          Value: private
+        - Key: Purpose
+          Value: ecs
 
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
@@ -131,6 +229,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-subnet-2"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Type
+          Value: private
+        - Key: Purpose
+          Value: ecs
 
   PrivateSubnet3:
     Type: AWS::EC2::Subnet
@@ -144,6 +250,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-subnet-3"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Type
+          Value: private
+        - Key: Purpose
+          Value: database
 
   PrivateSubnet4:
     Type: AWS::EC2::Subnet
@@ -157,6 +271,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-subnet-4"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Type
+          Value: private
+        - Key: Purpose
+          Value: database
 
   # -----------------------
   # NAT Gateway (for Private Subnets)
@@ -166,6 +288,13 @@ Resources:
     DependsOn: AttachGateway
     Properties:
       Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-nat-eip"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   NatGateway:
     Type: AWS::EC2::NatGateway
@@ -175,6 +304,10 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-ngw"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -----------------------
   # Public Route Table
@@ -186,6 +319,10 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-public-rtb"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   PublicRoute:
     Type: AWS::EC2::Route
@@ -217,6 +354,10 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-rtb"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   PrivateRoute:
     Type: AWS::EC2::Route
@@ -250,7 +391,7 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
 
   # -----------------------
-  # S3 Gateway Endpoint
+  # S3 Gateway Endpoint (for cost optimization)
   # -----------------------
   S3Endpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -260,6 +401,22 @@ Resources:
       VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PrivateRouteTable
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-s3-endpoint"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------
   # Service Discovery Namespace (Private)
@@ -273,134 +430,209 @@ Resources:
     DependsOn: VPC
 
   # -------------------------------------------------
-  # ALB Security Groups
+  # ALB Security Group
   # -------------------------------------------------
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP/HTTPS access from the Internet
+      GroupDescription: Security group for Application Load Balancer
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0
+        # Allow HTTP from Internet
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          CidrIp: !Ref AllowedHTTPCIDR
+          Description: Allow HTTP from Internet
+        # Allow HTTPS from Internet
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
+          CidrIp: !Ref AllowedHTTPCIDR
+          Description: Allow HTTPS from Internet
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
           CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 5672
-          ToPort: 5672
-          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-alb-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # Gateway Security Groups
+  # Gateway Security Group
   # -------------------------------------------------
   GatewaySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow ALB to Gateway (port 8080)
+      GroupDescription: Security group for Gateway service
       VpcId: !Ref VPC
       SecurityGroupIngress:
+        # Allow HTTP from ALB
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !Ref ALBSecurityGroup
-        - IpProtocol: tcp
-          FromPort: 0
-          ToPort: 15672
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Allow HTTP from ALB
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-gateway-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # Bastion Security Groups
+  # Bastion Security Group
   # -------------------------------------------------
   BastionSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow SSH from specific IPs
+      GroupDescription: Security group for Bastion host
       VpcId: !Ref VPC
       SecurityGroupIngress:
+        # Allow SSH from specified CIDR
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
+          CidrIp: !Ref AllowedSSHCIDR
+          Description: Allow SSH from specified CIDR
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
           CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-bastion-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # Base Security Groups
+  # Base Security Group (for ECS base services)
   # -------------------------------------------------
   BaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow Gateway to Base (port 80)
+      GroupDescription: Security group for ECS base services (Eureka, Config Server, etc.)
       VpcId: !Ref VPC
       SecurityGroupIngress:
+        # Allow HTTP from Gateway
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Allow HTTP from Gateway
+        # Allow Eureka port from Gateway
         - IpProtocol: tcp
           FromPort: 8761
           ToPort: 8761
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Allow Eureka from Gateway
+        # Allow Config Server port from Gateway
         - IpProtocol: tcp
           FromPort: 8888
           ToPort: 8888
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Allow Config Server from Gateway
+        # Allow RabbitMQ port from Gateway
         - IpProtocol: tcp
           FromPort: 5672
           ToPort: 5672
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Allow RabbitMQ from Gateway
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
           CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-base-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # Business Security Groups
+  # Business Security Group (for business services)
   # -------------------------------------------------
   BusinessSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow Gateway to Backend (ports 8080-8090)
+      GroupDescription: Security group for business services
       VpcId: !Ref VPC
       SecurityGroupIngress:
+        # Allow business service ports from Gateway
+        # Adjust port range based on your actual service ports
         - IpProtocol: tcp
-          FromPort: 8000
-          ToPort: 9000
+          FromPort: 8080
+          ToPort: 8090
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Allow business services from Gateway
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
           CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-business-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # MYSQL Security Groups
+  # Database Security Group
   # -------------------------------------------------
   DatabaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow Backend to MySQL (port 3306)
+      GroupDescription: Security group for MySQL database
       VpcId: !Ref VPC
       SecurityGroupIngress:
+        # Allow MySQL from Bastion
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+          Description: Allow MySQL from Bastion
+        # Allow MySQL from Base services (if needed)
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref BaseSecurityGroup
+          Description: Allow MySQL from Base services
+        # Allow MySQL from Business services
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref BusinessSecurityGroup
+          Description: Allow MySQL from Business services
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
           CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-database-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
   # Gateway Target Group
@@ -413,8 +645,19 @@ Resources:
       Protocol: HTTP
       VpcId: !Ref VPC
       TargetType: ip
-      HealthCheckPath: "/actuator/health"
+      HealthCheckPath: !Ref HealthCheckPath
       HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-gateway-tg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
   # Application Load Balancer
@@ -432,18 +675,23 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-alb"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # HTTPS Listener
+  # HTTPS Listener (conditional)
   # -------------------------------------------------
   ALBListenerHTTPS:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: EnableHTTPSListener
     Properties:
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 443
       Protocol: HTTPS
       Certificates:
-        - CertificateArn: arn:aws:acm:ap-northeast-1:442426889980:certificate/8b199528-8275-4449-8e80-f012b37af907
+        - CertificateArn: !Ref SSLCertificateArn
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref GatewayTargetGroup
@@ -457,27 +705,78 @@ Resources:
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
-      DefaultActions:
-        - Type: redirect
-          RedirectConfig:
-            Protocol: HTTPS
-            Port: "443"
-            StatusCode: HTTP_301
+      DefaultActions: !If
+        - EnableHTTPSListener
+        - - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              StatusCode: HTTP_301
+        - - Type: forward
+            TargetGroupArn: !Ref GatewayTargetGroup
 
   # -------------------------------------------------
-  # HTTP Gateway Rule
+  # VPC Flow Logs (for network monitoring)
   # -------------------------------------------------
-  ALBListenerRuleGateway:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+  FlowLogsRole:
+    Type: AWS::IAM::Role
+    Condition: CreateFlowLogs
     Properties:
-      ListenerArn: !Ref ALBListenerHTTP
-      Priority: 1
-      Conditions:
-        - Field: path-pattern
-          Values: ["/"]
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref GatewayTargetGroup
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: VPCFlowLogsDeliveryPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-flow-logs-role"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  FlowLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateFlowLogs
+    Properties:
+      LogGroupName: !Sub "/aws/vpc/${ProjectName}"
+      RetentionInDays: !If
+        - IsProd
+        - 30
+        - 7
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-flow-logs"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  FlowLogs:
+    Type: AWS::EC2::FlowLog
+    Condition: CreateFlowLogs
+    Properties:
+      ResourceType: VPC
+      ResourceId: !Ref VPC
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogDestination: !GetAtt FlowLogsGroup.Arn
+      DeliverLogsPermissionArn: !GetAtt FlowLogsRole.Arn
 
 Outputs:
   VPCId:
@@ -493,7 +792,7 @@ Outputs:
       Name: !Sub "${ProjectName}-servicediscovery-namespace-id"
 
   PublicSubnets:
-    Description: Public Subnet IDs
+    Description: Public Subnet IDs (comma-separated)
     Value: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2]]
     Export:
       Name: !Sub "${ProjectName}-public-subnets"
@@ -511,13 +810,13 @@ Outputs:
       Name: !Sub "${ProjectName}-public-subnet-2"
 
   ECSPrivateSubnets:
-    Description: Private Subnet IDs
+    Description: Private Subnet IDs for ECS (comma-separated)
     Value: !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
     Export:
       Name: !Sub "${ProjectName}-ecs-private-subnets"
 
   DBPrivateSubnets:
-    Description: Private Subnet IDs
+    Description: Private Subnet IDs for Database (comma-separated)
     Value: !Join [",", [!Ref PrivateSubnet3, !Ref PrivateSubnet4]]
     Export:
       Name: !Sub "${ProjectName}-db-private-subnets"
@@ -547,7 +846,7 @@ Outputs:
       Name: !Sub "${ProjectName}-ngw"
 
   S3EndpointId:
-    Description: S3 Endpoint ID
+    Description: S3 VPC Endpoint ID
     Value: !Ref S3Endpoint
     Export:
       Name: !Sub "${ProjectName}-s3-endpoint"
@@ -589,7 +888,7 @@ Outputs:
       Name: !Sub "${ProjectName}-bastion-sg"
 
   BaseSecurityGroupId:
-    Description: Security Group ID for Base
+    Description: Security Group ID for Base services
     Value: !Ref BaseSecurityGroup
     Export:
       Name: !Sub "${ProjectName}-base-sg"
@@ -601,13 +900,13 @@ Outputs:
       Name: !Sub "${ProjectName}-gateway-sg"
 
   BusinessSecurityGroupId:
-    Description: Security Group ID for Business
+    Description: Security Group ID for Business services
     Value: !Ref BusinessSecurityGroup
     Export:
       Name: !Sub "${ProjectName}-business-sg"
 
   DatabaseSecurityGroupId:
-    Description: Security Group ID for MySQL
+    Description: Security Group ID for Database
     Value: !Ref DatabaseSecurityGroup
     Export:
       Name: !Sub "${ProjectName}-database-sg"

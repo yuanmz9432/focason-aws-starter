@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  ECS Service for Focason Service Registry.
+  This template creates the ECS service for Service Registry with Service Discovery integration.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project prefix used to name all resources (must match VPC stack)
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match VPC stack)
+
+  # ECS Service Configuration
+  ServiceRegistryDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of Service Registry instances
+
+Conditions:
+  IsProd:
+    Fn::Equals:
+      - !Ref Environment
+      - prod
+
+Resources:
+  # -------------------------------------------------
+  # Service Discovery Service
+  # -------------------------------------------------
+  FocasonServiceRegistryServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: focason-service-registry
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      Tags:
+        - Key: Name
+          Value: focason-service-registry
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # -------------------------------------------------
+  # Focason Service Registry ECS Service
+  # -------------------------------------------------
+  ServiceRegistry:
+    Type: AWS::ECS::Service
+    DependsOn: FocasonServiceRegistryServiceDiscovery
+    Properties:
+      ServiceName: !Sub "${ProjectName}-service-registry"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: !Ref ServiceRegistryDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-service-registry-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FocasonServiceRegistryServiceDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-service-registry"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# -------------------------------------------------
+# Outputs
+# -------------------------------------------------
+Outputs:  
+  ServiceRegistryServiceDiscoveryArn:
+    Description: Service Discovery ARN for Service Registry
+    Value: !GetAtt FocasonServiceRegistryServiceDiscovery.Arn
+    Export:
+      Name: !Sub "${ProjectName}-service-registry-service-discovery-arn"
+
+  ServiceRegistryServiceName:
+    Description: ECS Service Name for Service Registry
+    Value: !Ref ServiceRegistry
+    Export:
+      Name: !Sub "${ProjectName}-service-registry"
+
+  ServiceRegistryServiceArn:
+    Description: ECS Service ARN for Service Registry
+    Value: !GetAtt ServiceRegistry.ServiceArn
+    Export:
+      Name: !Sub "${ProjectName}-service-registry-arn"

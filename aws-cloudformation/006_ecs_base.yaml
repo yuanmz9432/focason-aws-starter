@@ -1,0 +1,365 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Focason Microservices Architecture by ECS.
+  This template creates ECS services for base microservices:
+  Service Registry, Config Server, Gateway, and Platform Service.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project prefix used to name all resources (must match VPC stack)
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match VPC stack)
+
+  # ECS Service Configuration
+  ServiceRegistryDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of Service Registry instances
+
+  ConfigServerDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of Config Server instances
+
+  GatewayDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of Gateway service instances
+
+  PlatformServiceDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of Platform Service instances
+
+Conditions:
+  IsProd:
+    Fn::Equals:
+      - !Ref Environment
+      - prod
+
+Resources:
+  # -------------------------------------------------
+  # Service Discovery Services
+  # -------------------------------------------------
+  FocasonServiceRegistryServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: focason-service-registry
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Name
+          Value: focason-service-registry
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  FocasonConfigServerDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: focason-config-server
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Name
+          Value: focason-config-server
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  FocasonGatewayDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: focason-gateway
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Name
+          Value: focason-gateway
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  FocasonPlatformServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: focason-platform-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Name
+          Value: focason-platform-service
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # -------------------------------------------------
+  # Focason Service Registry
+  # -------------------------------------------------
+  ServiceRegistry:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-service-registry"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: !Ref ServiceRegistryDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-service-registry-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FocasonServiceRegistryServiceDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-service-registry"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # -------------------------------------------------
+  # Focason Config Server
+  # -------------------------------------------------
+  ConfigServer:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-config-server"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: !Ref ConfigServerDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-config-server-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FocasonConfigServerDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-config-server"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # -------------------------------------------------
+  # Focason Gateway
+  # -------------------------------------------------
+  Gateway:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-gateway"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: !Ref GatewayDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-gateway-sg"
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub "${ProjectName}-gateway-tg"
+          ContainerName: !Sub "${ProjectName}-gateway-container"
+          ContainerPort: 80
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-gateway-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FocasonGatewayDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-gateway"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # -------------------------------------------------
+  # Focason Platform Service
+  # -------------------------------------------------
+  PlatformService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-platform-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: !Ref PlatformServiceDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-business-sg"
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub "${ProjectName}-gateway-tg"
+          ContainerName: !Sub "${ProjectName}-platform-service-container"
+          ContainerPort: 8081
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-platform-service-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FocasonPlatformServiceDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-platform-service"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# -------------------------------------------------
+# Outputs
+# -------------------------------------------------
+Outputs:  
+  ServiceRegistryServiceDiscoveryArn:
+    Description: Service Discovery ARN for Service Registry
+    Value: !GetAtt FocasonServiceRegistryServiceDiscovery.Arn
+    Export:
+      Name: !Sub "${ProjectName}-service-registry-service-discovery-arn"
+
+  ServiceRegistryServiceName:
+    Description: ECS Service Name for Service Registry
+    Value: !Ref ServiceRegistry
+    Export:
+      Name: !Sub "${ProjectName}-service-registry"
+
+  ServiceRegistryServiceArn:
+    Description: ECS Service ARN for Service Registry
+    Value: !GetAtt ServiceRegistry.ServiceArn
+    Export:
+      Name: !Sub "${ProjectName}-service-registry-arn"
+
+  ConfigServerServiceDiscoveryArn:
+    Description: Service Discovery ARN for Config Server
+    Value: !GetAtt FocasonConfigServerDiscovery.Arn
+    Export:
+      Name: !Sub "${ProjectName}-config-server-service-discovery-arn"
+
+  ConfigServerName:
+    Description: ECS Service Name for Config Server
+    Value: !Ref ConfigServer
+    Export:
+      Name: !Sub "${ProjectName}-config-server"
+
+  ConfigServerArn:
+    Description: ECS Service ARN for Config Server
+    Value: !GetAtt ConfigServer.ServiceArn
+    Export:
+      Name: !Sub "${ProjectName}-config-server-arn"
+
+  GatewayServiceDiscoveryArn:
+    Description: Service Discovery ARN for Gateway
+    Value: !GetAtt FocasonGatewayDiscovery.Arn
+    Export:
+      Name: !Sub "${ProjectName}-gateway-service-discovery-arn"
+
+  GatewayName:
+    Description: ECS Service Name for Gateway
+    Value: !Ref Gateway
+    Export:
+      Name: !Sub "${ProjectName}-gateway"
+
+  GatewayArn:
+    Description: ECS Service ARN for Gateway
+    Value: !GetAtt Gateway.ServiceArn
+    Export:
+      Name: !Sub "${ProjectName}-gateway-arn"
+
+  PlatformServiceDiscoveryArn:
+    Description: Service Discovery ARN for Platform Service
+    Value: !GetAtt FocasonPlatformServiceDiscovery.Arn
+    Export:
+      Name: !Sub "${ProjectName}-platform-service-discovery-arn"
+
+  PlatformServiceName:
+    Description: ECS Service Name for Platform Service
+    Value: !Ref PlatformService
+    Export:
+      Name: !Sub "${ProjectName}-platform-service"
+
+  PlatformServiceArn:
+    Description: ECS Service ARN for Platform Service
+    Value: !GetAtt PlatformService.ServiceArn
+    Export:
+      Name: !Sub "${ProjectName}-platform-service-arn"

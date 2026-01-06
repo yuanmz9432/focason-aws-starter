@@ -1,5 +1,5 @@
 {
-  "family": "focason-config-server-task",
+  "family": "focason-cloud-config-server-task",
   "containerDefinitions": [
     {
       "cpu": 512,
@@ -59,7 +59,7 @@
       "memory": 1024,
       "memoryReservation": 1024,
       "mountPoints": [],
-      "name": "focason-config-server-container",
+      "name": "focason-cloud-config-server-container",
       "portMappings": [
         {
           "appProtocol": "http",

@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  RDS MySQL instance in VPC.
+  This template creates a private RDS MySQL instance for application database.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project prefix used to name all resources (must match VPC stack)
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match VPC stack)
+
+  # Database Parameters
+  DBUsername:
+    Type: String
+    Default: admin
+    Description: RDS master username
+    NoEcho: false
+
+  DBPassword:
+    Type: String
+    Default: password
+    NoEcho: true
+    MinLength: 8
+    Description: RDS master password (minimum 8 characters)
+
+  DBName:
+    Type: String
+    Default: focason
+    Description: Initial database name
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t4g.micro
+      - db.t4g.small
+      - db.t4g.medium
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.r6g.large
+      - db.r6g.xlarge
+    Description: RDS instance class
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 65536
+    Description: Allocated storage in GB
+
+  DBStorageType:
+    Type: String
+    Default: gp2
+    AllowedValues:
+      - gp3
+      - gp2
+      - io1
+    Description: Storage type
+
+  DBEngineVersion:
+    Type: String
+    Default: '8.0.42'
+    Description: MySQL engine version
+
+  DBBackupRetentionPeriod:
+    Type: Number
+    Default: 7
+    MinValue: 0
+    MaxValue: 35
+    Description: Number of days to retain automated backups (0 to disable)
+
+  EnableDBDeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable deletion protection for RDS instance (recommended for production)
+
+  EnableMultiAZ:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable Multi-AZ deployment for high availability (recommended for production)
+
+  # Route53 Parameters
+  HostedZoneName:
+    Type: String
+    Default: 'focason.com'
+    Description: Route53 hosted zone name (e.g., focason.com) - leave empty to skip DNS record creation
+
+  RDSSubdomain:
+    Type: String
+    Default: mysql-rds
+    Description: Subdomain for RDS DNS record (e.g., mysql-rds for mysql-rds.focason.com)
+
+Conditions:
+  IsProd:
+    Fn::Equals:
+      - !Ref Environment
+      - prod
+
+  CreateDNSRecord:
+    Fn::Not:
+      - Fn::Equals:
+          - !Ref HostedZoneName
+          - ''
+
+  EnableMultiAZCondition:
+    Fn::Equals:
+      - !Ref EnableMultiAZ
+      - 'true'
+
+  EnableDeletionProtection:
+    Fn::Equals:
+      - !Ref EnableDBDeletionProtection
+      - 'true'
+
+Resources:
+  # -------------------------------------------------
+  # DB Subnet Group
+  # -------------------------------------------------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub "Subnet group for ${ProjectName} RDS MySQL"
+      SubnetIds: !Split
+        - ","
+        - Fn::ImportValue: !Sub "${ProjectName}-db-private-subnets"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-db-subnet-group"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # -------------------------------------------------
+  # RDS MySQL Instance
+  # -------------------------------------------------
+  MysqlRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-mysql-instance"
+      Engine: mysql
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: !Ref DBStorageType
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      MultiAZ: !If
+        - IsProd
+        - true
+        - !If
+          - EnableMultiAZCondition
+          - true
+          - false
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - Fn::ImportValue: !Sub "${ProjectName}-database-sg"
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
+      DeletionProtection: !If
+        - EnableDeletionProtection
+        - true
+        - false
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
+      StorageEncrypted: true
+      EnablePerformanceInsights: !If
+        - IsProd
+        - true
+        - false
+      PerformanceInsightsRetentionPeriod: !If
+        - IsProd
+        - 7
+        - !Ref AWS::NoValue
+      AutoMinorVersionUpgrade: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-mysql-instance"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # -------------------------------------------------
+  # Route53 CNAME Record for RDS (Optional)
+  # -------------------------------------------------
+  RDSDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateDNSRecord
+    Properties:
+      HostedZoneName: !Sub "${HostedZoneName}."
+      Name: !Sub "${RDSSubdomain}.${HostedZoneName}."
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt MysqlRDSInstance.Endpoint.Address
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: The RDS instance endpoint (connect through SSH tunnel)
+    Value: !GetAtt MysqlRDSInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${ProjectName}-db-endpoint"
+
+  RDSInstancePort:
+    Description: The RDS instance port
+    Value: !GetAtt MysqlRDSInstance.Endpoint.Port
+    Export:
+      Name: !Sub "${ProjectName}-db-port"
+
+  RDSInstanceIdentifier:
+    Description: The RDS instance identifier
+    Value: !Ref MysqlRDSInstance
+    Export:
+      Name: !Sub "${ProjectName}-db-instance-id"
+
+  MysqlRDSDomain:
+    Description: Fixed RDS DNS record for internal/external connections
+    Condition: CreateDNSRecord
+    Value: !Sub "${RDSSubdomain}.${HostedZoneName}"
+    Export:
+      Name: !Sub "${ProjectName}-mysql-rds-domain"
+
+  RdsEndpoint:
+    Description: RDS MySQL endpoint address
+    Value: !GetAtt MysqlRDSInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${ProjectName}-rds-endpoint"
+
+  RdsPort:
+    Description: RDS MySQL port
+    Value: !GetAtt MysqlRDSInstance.Endpoint.Port
+    Export:
+      Name: !Sub "${ProjectName}-rds-port"
+
+  DatabaseConnectionInfo:
+    Description: Database connection information
+    Value: !Sub |
+      Database: ${DBName}
+      Username: ${DBUsername}
+      Endpoint: ${MysqlRDSInstance.Endpoint.Address}
+      Port: ${MysqlRDSInstance.Endpoint.Port}
+      Connect via: ssh tunnel through bastion host
+

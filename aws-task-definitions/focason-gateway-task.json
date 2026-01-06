@@ -1,5 +1,5 @@
 {
-  "family": "focason-gateway-task",
+  "family": "focason-cloud-gateway-task",
   "containerDefinitions": [
     {
       "cpu": 512,
@@ -67,7 +67,7 @@
       "memory": 1024,
       "memoryReservation": 1024,
       "mountPoints": [],
-      "name": "focason-gateway-container",
+      "name": "focason-cloud-gateway-container",
       "portMappings": [
         {
           "appProtocol": "http",

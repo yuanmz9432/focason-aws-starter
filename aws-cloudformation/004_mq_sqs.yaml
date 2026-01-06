@@ -1,12 +1,25 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: AWS MQ (RabbitMQ) and SQS (Simple Queue Service) for Focason Cloud
+Description: >
+  AWS MQ (RabbitMQ) and SQS (Simple Queue Service) for Focason Cloud.
+  This template creates a RabbitMQ message broker and SQS queues for
+  asynchronous messaging in the application.
 
 Parameters:
   ProjectName:
     Type: String
     Default: focason-cloud
-    Description: Project prefix used to name all resources
+    Description: Project prefix used to name all resources (must match VPC stack)
 
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match VPC stack)
+
+  # AWS MQ Parameters
   MQInstanceType:
     Type: String
     Default: mq.t3.micro
@@ -21,6 +34,7 @@ Parameters:
     Type: String
     Default: admin
     Description: MQ broker admin username
+    NoEcho: false
 
   MQPassword:
     Type: String
@@ -28,6 +42,11 @@ Parameters:
     NoEcho: true
     MinLength: 12
     Description: MQ broker admin password (minimum 12 characters)
+
+  MQEngineVersion:
+    Type: String
+    Default: '3.13'
+    Description: RabbitMQ engine version
 
   EnableMQPublicAccess:
     Type: String
@@ -55,30 +74,39 @@ Resources:
       VpcId:
         Fn::ImportValue: !Sub "${ProjectName}-vpc-id"
       SecurityGroupIngress:
-        # Allow RabbitMQ AMQP port
+        # Allow RabbitMQ AMQP port (TLS)
         - IpProtocol: tcp
           FromPort: 5671
           ToPort: 5671
           SourceSecurityGroupId:
             Fn::ImportValue: !Sub "${ProjectName}-base-sg"
-          Description: RabbitMQ AMQP
-        # Allow RabbitMQ Management UI port
+          Description: RabbitMQ AMQP (TLS) from ECS services
+        # Allow RabbitMQ Management UI port (TLS)
         - IpProtocol: tcp
           FromPort: 15671
           ToPort: 15671
           SourceSecurityGroupId:
             Fn::ImportValue: !Sub "${ProjectName}-base-sg"
-          Description: RabbitMQ Management UI
+          Description: RabbitMQ Management UI (TLS) from ECS services
         # Allow RabbitMQ Management UI from bastion
         - IpProtocol: tcp
           FromPort: 15671
           ToPort: 15671
           SourceSecurityGroupId:
             Fn::ImportValue: !Sub "${ProjectName}-bastion-sg"
-          Description: RabbitMQ Management UI from Bastion
+          Description: RabbitMQ Management UI (TLS) from Bastion
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-mq-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
 
   # -------------------------------------------------
   # AWS MQ Broker (RabbitMQ)
@@ -90,7 +118,7 @@ Resources:
       HostInstanceType: !Ref MQInstanceType
       DeploymentMode: SINGLE_INSTANCE
       EngineType: RabbitMQ
-      EngineVersion: '3.13'
+      EngineVersion: !Ref MQEngineVersion
       PubliclyAccessible: !If
         - EnablePublicAccess
         - true
@@ -106,10 +134,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-mq-broker"
+        - Key: Environment
+          Value: !Ref Environment
         - Key: Project
           Value: !Ref ProjectName
         - Key: Engine
           Value: RabbitMQ
+        - Key: ManagedBy
+          Value: CloudFormation
 
   # -------------------------------------------------
   # SQS Queues
@@ -131,6 +163,8 @@ Resources:
       Tags:
         - Key: Name
           Value: focason-email-send-queue
+        - Key: Environment
+          Value: !Ref Environment
         - Key: Project
           Value: !Ref ProjectName
         - Key: Purpose
@@ -145,6 +179,8 @@ Resources:
       Tags:
         - Key: Name
           Value: focason-email-send-queue-dlq
+        - Key: Environment
+          Value: !Ref Environment
         - Key: Project
           Value: !Ref ProjectName
         - Key: Purpose
@@ -166,6 +202,8 @@ Resources:
       Tags:
         - Key: Name
           Value: focason-notification-send-queue
+        - Key: Environment
+          Value: !Ref Environment
         - Key: Project
           Value: !Ref ProjectName
         - Key: Purpose
@@ -180,6 +218,8 @@ Resources:
       Tags:
         - Key: Name
           Value: focason-notification-send-queue-dlq
+        - Key: Environment
+          Value: !Ref Environment
         - Key: Project
           Value: !Ref ProjectName
         - Key: Purpose
@@ -250,13 +290,13 @@ Outputs:
       Name: !Sub "${ProjectName}-mq-broker-arn"
 
   MQBrokerAmqpEndpoint:
-    Description: AWS MQ Broker AMQP Endpoint (RabbitMQ)
+    Description: AWS MQ Broker AMQP Endpoint (RabbitMQ) - Use this for application connections
     Value: !Select [0, !GetAtt MQBroker.AmqpEndpoints]
     Export:
       Name: !Sub "${ProjectName}-mq-broker-amqp-endpoint"
 
   MQBrokerConsoleURL:
-    Description: AWS MQ Broker Management Console URL (RabbitMQ)
+    Description: AWS MQ Broker Management Console URL (RabbitMQ) - Access via bastion host port forwarding
     Value: !Sub "https://${MQBroker}.mq.${AWS::Region}.amazonaws.com:15671"
     Export:
       Name: !Sub "${ProjectName}-mq-broker-console-url"
@@ -266,6 +306,12 @@ Outputs:
     Value: !Ref MQUsername
     Export:
       Name: !Sub "${ProjectName}-mq-broker-username"
+
+  MQBrokerPassword:
+    Description: AWS MQ Broker Password (Note: For production, use Secrets Manager instead)
+    Value: !Ref MQPassword
+    Export:
+      Name: !Sub "${ProjectName}-mq-broker-password"
 
   MQSecurityGroupId:
     Description: Security Group ID for MQ

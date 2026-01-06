@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bastion Host in VPC.
+  This template creates a bastion host (jump server) for secure access
+  to private resources in the VPC.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project prefix used to name all resources (must match VPC stack)
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match VPC stack)
+
+  # Bastion Host Parameters
+  BastionInstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t3.micro
+      - t3.small
+    Description: EC2 instance type for bastion host
+
+  BastionSSHPublicKey:
+    Type: String
+    Description: SSH public key for bastion host access (required if creating KeyPair)
+    Default: ''
+
+  CreateKeyPair:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Create a new EC2 KeyPair (set to false if using existing keypair)
+
+  ExistingKeyPairName:
+    Type: String
+    Default: ''
+    Description: Existing EC2 KeyPair name (required if CreateKeyPair is false)
+
+Conditions:
+  CreateNewKeyPair:
+    Fn::Equals:
+      - !Ref CreateKeyPair
+      - 'true'
+
+  UseExistingKeyPair:
+    Fn::Equals:
+      - !Ref CreateKeyPair
+      - 'false'
+
+Resources:
+  # -------------------------------------------------
+  # Bastion Host EC2 KeyPair (Optional)
+  # -------------------------------------------------
+  KeyPair:
+    Type: AWS::EC2::KeyPair
+    Condition: CreateNewKeyPair
+    Properties:
+      KeyName: !Sub "${ProjectName}-keypair"
+      PublicKeyMaterial: !Ref BastionSSHPublicKey
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-keypair"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # -------------------------------------------------
+  # Bastion Host (EC2)
+  # -------------------------------------------------
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref BastionInstanceType
+      KeyName: !If
+        - CreateNewKeyPair
+        - !Ref KeyPair
+        - !Ref ExistingKeyPairName
+      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Select
+            - 0
+            - !Split
+              - ","
+              - Fn::ImportValue: !Sub "${ProjectName}-public-subnets"
+          GroupSet:
+            - Fn::ImportValue: !Sub "${ProjectName}-bastion-sg"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Update system packages
+          dnf update -y
+          # Install commonly used tools
+          dnf install -y mariadb105 htop git
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-bastion-instance"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  BastionPublicIP:
+    Description: Public IP of the Bastion host
+    Value: !GetAtt BastionInstance.PublicIp
+    Export:
+      Name: !Sub "${ProjectName}-bastion-public-ip"
+
+  BastionInstanceId:
+    Description: EC2 Instance ID of the Bastion host
+    Value: !Ref BastionInstance
+    Export:
+      Name: !Sub "${ProjectName}-bastion-instance-id"
+
+  KeyPairName:
+    Description: EC2 keypair name
+    Condition: CreateNewKeyPair
+    Value: !Ref KeyPair
+    Export:
+      Name: !Sub "${ProjectName}-keypair"
+
+  BastionConnectionInfo:
+    Description: Bastion host connection information
+    Value: !Sub |
+      SSH Command: ssh -i <private-key> ec2-user@${BastionInstance.PublicIp}
+      Public IP: ${BastionInstance.PublicIp}
+      Instance ID: ${BastionInstance}
+

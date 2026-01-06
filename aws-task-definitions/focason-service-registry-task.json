@@ -1,5 +1,5 @@
 {
-  "family": "focason-service-registry-task",
+  "family": "focason-cloud-service-registry-task",
   "containerDefinitions": [
     {
       "cpu": 512,
@@ -43,7 +43,7 @@
       "memory": 1024,
       "memoryReservation": 1024,
       "mountPoints": [],
-      "name": "focason-service-registry-container",
+      "name": "focason-cloud-service-registry-container",
       "portMappings": [
         {
           "appProtocol": "http",
