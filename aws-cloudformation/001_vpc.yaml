@@ -70,7 +70,7 @@ Parameters:
   # ALB Parameters
   EnableHTTPS:
     Type: String
-    Default: 'false'
+    Default: 'true'
     AllowedValues:
       - 'true'
       - 'false'
@@ -78,7 +78,7 @@ Parameters:
 
   SSLCertificateArn:
     Type: String
-    Default: ''
+    Default: 'arn:aws:acm:ap-northeast-1:442426889980:certificate/8b199528-8275-4449-8e80-f012b37af907'
     Description: ARN of the SSL certificate in ACM (required if EnableHTTPS is true)
 
   HealthCheckPath:
@@ -95,6 +95,14 @@ Parameters:
       - 'false'
     Description: Enable VPC Flow Logs for network monitoring
 
+  ExistingFlowLogsGroupArn:
+    Type: String
+    Default: 'arn:aws:logs:ap-northeast-1:442426889980:log-group:/aws/vpc/focason-cloud:*'
+    Description: >
+      ARN of existing CloudWatch Log Group for VPC Flow Logs.
+      Leave empty to create new. If Log Group already exists (manually created or from another stack),
+      you must provide its ARN to avoid creation failure.
+
 Conditions:
   IsProd:
     Fn::Equals:
@@ -110,6 +118,25 @@ Conditions:
     Fn::Equals:
       - !Ref EnableVPCFlowLogs
       - 'true'
+
+  CreateNewLogGroup:
+    Fn::And:
+      - Fn::Equals:
+          - !Ref EnableVPCFlowLogs
+          - 'true'
+      - Fn::Equals:
+          - !Ref ExistingFlowLogsGroupArn
+          - ''
+
+  UseExistingLogGroup:
+    Fn::And:
+      - Fn::Equals:
+          - !Ref EnableVPCFlowLogs
+          - 'true'
+      - Fn::Not:
+          - Fn::Equals:
+              - !Ref ExistingFlowLogsGroupArn
+              - ''
 
 Resources:
   # -----------------------
@@ -752,7 +779,12 @@ Resources:
 
   FlowLogsGroup:
     Type: AWS::Logs::LogGroup
-    Condition: CreateFlowLogs
+    Condition: CreateNewLogGroup
+    # Retain policy ensures logs are preserved even if stack is deleted
+    # If Log Group already exists (not managed by this stack), CloudFormation will fail
+    # In that case, provide ExistingFlowLogsGroupArn parameter instead
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub "/aws/vpc/${ProjectName}"
       RetentionInDays: !If
@@ -775,7 +807,10 @@ Resources:
       ResourceId: !Ref VPC
       TrafficType: ALL
       LogDestinationType: cloud-watch-logs
-      LogDestination: !GetAtt FlowLogsGroup.Arn
+      LogDestination: !If
+        - CreateNewLogGroup
+        - !GetAtt FlowLogsGroup.Arn
+        - !Ref ExistingFlowLogsGroupArn
       DeliverLogsPermissionArn: !GetAtt FlowLogsRole.Arn
 
 Outputs:

@@ -22,15 +22,23 @@
         },
         {
           "name": "RABBITMQ_HOST",
-          "value": "rabbitmq-server.focason-cloud.internal"
+          "value": "b-72880c7a-7b31-4a73-9edf-44d1dfe410d8.mq.ap-northeast-1.on.aws"
         },
         {
-          "name": "RABBITMQ_DEFAULT_PASS",
-          "value": "guest"
+          "name": "RABBITMQ_PORT",
+          "value": "5671"
         },
         {
-          "name": "RABBITMQ_DEFAULT_USER",
-          "value": "guest"
+          "name": "RABBITMQ_USERNAME",
+          "value": "admin"
+        },
+        {
+          "name": "RABBITMQ_PASSWORD",
+          "value": "LnFhsXYur8nM"
+        },
+        {
+          "name": "RABBITMQ_SSL",
+          "value": "true"
         },
         {
           "name": "LOG_LEVEL",

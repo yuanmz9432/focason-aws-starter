@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  ECS Service for Focason Service Registry.
-  This template creates the ECS service for Service Registry with Service Discovery integration.
+  ECS Service for Focason Platform Service.
+  This template creates the ECS service for Platform Service with Service Discovery integration and Load Balancer.
 
 Parameters:
   ProjectName:
@@ -19,12 +19,12 @@ Parameters:
     Description: Environment name (must match VPC stack)
 
   # ECS Service Configuration
-  ServiceRegistryDesiredCount:
+  PlatformServiceDesiredCount:
     Type: Number
     Default: 1
     MinValue: 1
     MaxValue: 10
-    Description: Desired number of Service Registry instances
+    Description: Desired number of Platform Service instances
 
 Conditions:
   IsProd:
@@ -36,19 +36,21 @@ Resources:
   # -------------------------------------------------
   # Service Discovery Service
   # -------------------------------------------------
-  FocasonServiceRegistryServiceDiscovery:
+  FocasonPlatformServiceDiscovery:
     Type: AWS::ServiceDiscovery::Service
     Properties:
-      Name: focason-service-registry
+      Name: focason-platform-service
       NamespaceId:
         Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
       DnsConfig:
         DnsRecords:
           - Type: A
             TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
       Tags:
         - Key: Name
-          Value: focason-service-registry
+          Value: focason-platform-service
         - Key: Environment
           Value: !Ref Environment
         - Key: Project
@@ -57,17 +59,17 @@ Resources:
           Value: CloudFormation
 
   # -------------------------------------------------
-  # Focason Service Registry ECS Service
+  # Focason Platform Service ECS Service
   # -------------------------------------------------
-  ServiceRegistry:
+  PlatformService:
     Type: AWS::ECS::Service
-    DependsOn: FocasonServiceRegistryServiceDiscovery
+    DependsOn: FocasonPlatformServiceDiscovery
     Properties:
-      ServiceName: !Sub "${ProjectName}-service-registry"
+      ServiceName: !Sub "${ProjectName}-platform-service"
       Cluster:
         Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
       LaunchType: FARGATE
-      DesiredCount: !Ref ServiceRegistryDesiredCount
+      DesiredCount: !Ref PlatformServiceDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -75,16 +77,21 @@ Resources:
             - ","
             - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
           SecurityGroups:
-            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
-      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-service-registry-task"
+            - Fn::ImportValue: !Sub "${ProjectName}-business-sg"
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub "${ProjectName}-gateway-tg"
+          ContainerName: !Sub "${ProjectName}-platform-service-container"
+          ContainerPort: 8081
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-platform-service-task"
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 50
       ServiceRegistries:
-        - RegistryArn: !GetAtt FocasonServiceRegistryServiceDiscovery.Arn
+        - RegistryArn: !GetAtt FocasonPlatformServiceDiscovery.Arn
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-service-registry"
+          Value: !Sub "${ProjectName}-platform-service"
         - Key: Environment
           Value: !Ref Environment
         - Key: Project
@@ -96,20 +103,20 @@ Resources:
 # Outputs
 # -------------------------------------------------
 Outputs:  
-  ServiceRegistryServiceDiscoveryArn:
-    Description: Service Discovery ARN for Service Registry
-    Value: !GetAtt FocasonServiceRegistryServiceDiscovery.Arn
+  PlatformServiceServiceDiscoveryArn:
+    Description: Service Discovery ARN for Platform Service
+    Value: !GetAtt FocasonPlatformServiceDiscovery.Arn
     Export:
-      Name: !Sub "${ProjectName}-service-registry-service-discovery-arn"
+      Name: !Sub "${ProjectName}-platform-service-service-discovery-arn"
 
-  ServiceRegistryServiceName:
-    Description: ECS Service Name for Service Registry
-    Value: !Ref ServiceRegistry
+  PlatformServiceServiceName:
+    Description: ECS Service Name for Platform Service
+    Value: !Ref PlatformService
     Export:
-      Name: !Sub "${ProjectName}-service-registry"
+      Name: !Sub "${ProjectName}-platform-service"
 
-  ServiceRegistryServiceArn:
-    Description: ECS Service ARN for Service Registry
-    Value: !GetAtt ServiceRegistry.ServiceArn
+  PlatformServiceServiceArn:
+    Description: ECS Service ARN for Platform Service
+    Value: !GetAtt PlatformService.ServiceArn
     Export:
-      Name: !Sub "${ProjectName}-service-registry-arn"
+      Name: !Sub "${ProjectName}-platform-service-arn"

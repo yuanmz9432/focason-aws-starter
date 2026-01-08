@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  ECS Service for Focason Config Server.
+  This template creates the ECS service for Config Server with Service Discovery integration.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: focason-cloud
+    Description: Project prefix used to name all resources (must match VPC stack)
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match VPC stack)
+
+  # ECS Service Configuration
+  ConfigServerDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Desired number of Config Server instances
+
+Conditions:
+  IsProd:
+    Fn::Equals:
+      - !Ref Environment
+      - prod
+
+Resources:
+  # -------------------------------------------------
+  # Service Discovery Service
+  # -------------------------------------------------
+  FocasonConfigServerServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: focason-cloud-config-server
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-namespace-id"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      Tags:
+        - Key: Name
+          Value: focason-cloud-config-server
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # -------------------------------------------------
+  # Focason Config Server ECS Service
+  # -------------------------------------------------
+  ConfigServer:
+    Type: AWS::ECS::Service
+    DependsOn: FocasonConfigServerServiceDiscovery
+    Properties:
+      ServiceName: !Sub "${ProjectName}-config-server"
+      Cluster:
+        Fn::ImportValue: !Sub "${ProjectName}-ecs-cluster"
+      LaunchType: FARGATE
+      DesiredCount: !Ref ConfigServerDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split
+            - ","
+            - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+      TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-config-server-task"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FocasonConfigServerServiceDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-config-server"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# -------------------------------------------------
+# Outputs
+# -------------------------------------------------
+Outputs:  
+  ConfigServerServiceDiscoveryArn:
+    Description: Service Discovery ARN for Config Server
+    Value: !GetAtt FocasonConfigServerServiceDiscovery.Arn
+    Export:
+      Name: !Sub "${ProjectName}-config-server-service-discovery-arn"
+
+  ConfigServerServiceName:
+    Description: ECS Service Name for Config Server
+    Value: !Ref ConfigServer
+    Export:
+      Name: !Sub "${ProjectName}-config-server"
+
+  ConfigServerServiceArn:
+    Description: ECS Service ARN for Config Server
+    Value: !GetAtt ConfigServer.ServiceArn
+    Export:
+      Name: !Sub "${ProjectName}-config-server-arn"

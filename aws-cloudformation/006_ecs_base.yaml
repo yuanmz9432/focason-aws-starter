@@ -306,7 +306,7 @@ Outputs:
 
   ServiceRegistryServiceArn:
     Description: ECS Service ARN for Service Registry
-    Value: !GetAtt ServiceRegistry.ServiceArn
+    Value: !GetAtt ServiceRegistry.Id
     Export:
       Name: !Sub "${ProjectName}-service-registry-arn"
 
@@ -324,7 +324,7 @@ Outputs:
 
   ConfigServerArn:
     Description: ECS Service ARN for Config Server
-    Value: !GetAtt ConfigServer.ServiceArn
+    Value: !GetAtt ConfigServer.Id
     Export:
       Name: !Sub "${ProjectName}-config-server-arn"
 
@@ -342,7 +342,7 @@ Outputs:
 
   GatewayArn:
     Description: ECS Service ARN for Gateway
-    Value: !GetAtt Gateway.ServiceArn
+    Value: !GetAtt Gateway.Id
     Export:
       Name: !Sub "${ProjectName}-gateway-arn"
 
@@ -360,6 +360,6 @@ Outputs:
 
   PlatformServiceArn:
     Description: ECS Service ARN for Platform Service
-    Value: !GetAtt PlatformService.ServiceArn
+    Value: !GetAtt PlatformService.Id
     Export:
       Name: !Sub "${ProjectName}-platform-service-arn"
