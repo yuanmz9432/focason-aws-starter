@@ -64,72 +64,6 @@ Conditions:
 
 Resources:
   # -------------------------------------------------
-  # Security Group for AWS MQ (RabbitMQ)
-  # -------------------------------------------------
-  MQSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub "${ProjectName}-mq-sg"
-      GroupDescription: Security group for AWS MQ RabbitMQ broker
-      VpcId:
-        Fn::ImportValue: !Sub "${ProjectName}-vpc-id"
-      SecurityGroupIngress:
-        # Allow RabbitMQ AMQP port (TLS)
-        - IpProtocol: tcp
-          FromPort: 5671
-          ToPort: 5671
-          SourceSecurityGroupId:
-            Fn::ImportValue: !Sub "${ProjectName}-base-sg"
-          Description: RabbitMQ AMQP (TLS) from Base services
-        # Allow RabbitMQ AMQP port (TLS) from Gateway
-        - IpProtocol: tcp
-          FromPort: 5671
-          ToPort: 5671
-          SourceSecurityGroupId:
-            Fn::ImportValue: !Sub "${ProjectName}-gateway-sg"
-          Description: RabbitMQ AMQP (TLS) from Gateway
-        # Allow RabbitMQ AMQP port (TLS) from Business services
-        - IpProtocol: tcp
-          FromPort: 5671
-          ToPort: 5671
-          SourceSecurityGroupId:
-            Fn::ImportValue: !Sub "${ProjectName}-business-sg"
-          Description: RabbitMQ AMQP (TLS) from Business services
-        # Allow RabbitMQ Management UI port (TLS) from Base services
-        - IpProtocol: tcp
-          FromPort: 15671
-          ToPort: 15671
-          SourceSecurityGroupId:
-            Fn::ImportValue: !Sub "${ProjectName}-base-sg"
-          Description: RabbitMQ Management UI (TLS) from Base services
-        # Allow RabbitMQ Management UI port (TLS) from Gateway
-        - IpProtocol: tcp
-          FromPort: 15671
-          ToPort: 15671
-          SourceSecurityGroupId:
-            Fn::ImportValue: !Sub "${ProjectName}-gateway-sg"
-          Description: RabbitMQ Management UI (TLS) from Gateway
-        # Allow RabbitMQ Management UI from bastion
-        - IpProtocol: tcp
-          FromPort: 15671
-          ToPort: 15671
-          SourceSecurityGroupId:
-            Fn::ImportValue: !Sub "${ProjectName}-bastion-sg"
-          Description: RabbitMQ Management UI (TLS) from Bastion
-      SecurityGroupEgress:
-        # Allow all outbound traffic
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-          Description: Allow all outbound traffic
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-mq-sg"
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # -------------------------------------------------
   # AWS MQ Broker (RabbitMQ)
   # -------------------------------------------------
   MQBroker:
@@ -146,7 +80,7 @@ Resources:
         - false
       SubnetIds: [!Select [0, !Split [",", Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"]]]
       SecurityGroups:
-        - !Ref MQSecurityGroup
+        - Fn::ImportValue: !Sub "${ProjectName}-mq-sg"
       Users:
         - Username: !Ref MQUsername
           Password: !Ref MQPassword
@@ -163,6 +97,24 @@ Resources:
           Value: RabbitMQ
         - Key: ManagedBy
           Value: CloudFormation
+
+  # -------------------------------------------------
+  # Route53 Record for MQ Broker Endpoint in Service Discovery
+  # This creates a DNS record in the Service Discovery namespace
+  # pointing to the MQ broker endpoint
+  # Other services can access MQ using: focason-mq.focason-cloud.internal
+  # -------------------------------------------------
+  MQBrokerDnsRecord:
+    Type: AWS::Route53::RecordSet
+    DependsOn: MQBroker
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue: !Sub "${ProjectName}-servicediscovery-hosted-zone-id"
+      Name: !Sub "focason-mq.${ProjectName}.internal"
+      Type: CNAME
+      TTL: 60
+      ResourceRecords:
+        - !Select [0, !GetAtt MQBroker.AmqpEndpoints]
 
   # -------------------------------------------------
   # SQS Queues
@@ -334,11 +286,11 @@ Outputs:
     Export:
       Name: !Sub "${ProjectName}-mq-broker-password"
 
-  MQSecurityGroupId:
-    Description: Security Group ID for MQ
-    Value: !Ref MQSecurityGroup
+  MQBrokerServiceDiscoveryName:
+    Description: Service Discovery DNS name for MQ Broker (use this in applications)
+    Value: !Sub "focason-mq.${ProjectName}.internal"
     Export:
-      Name: !Sub "${ProjectName}-mq-sg"
+      Name: !Sub "${ProjectName}-mq-broker-service-discovery-name"
 
   # SQS Outputs
   EmailSendQueueUrl:

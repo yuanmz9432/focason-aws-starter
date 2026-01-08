@@ -75,7 +75,7 @@ Resources:
             - ","
             - Fn::ImportValue: !Sub "${ProjectName}-ecs-private-subnets"
           SecurityGroups:
-            - Fn::ImportValue: !Sub "${ProjectName}-base-sg"
+            - Fn::ImportValue: !Sub "${ProjectName}-config-server-sg"
       TaskDefinition: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ProjectName}-config-server-task"
       DeploymentConfiguration:
         MaximumPercent: 200

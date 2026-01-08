@@ -462,6 +462,7 @@ Resources:
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupName: !Sub "${ProjectName}-alb-sg"
       GroupDescription: Security group for Application Load Balancer
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -491,39 +492,12 @@ Resources:
           Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # Gateway Security Group
-  # -------------------------------------------------
-  GatewaySecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for Gateway service
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        # Allow HTTP from ALB
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
-          Description: Allow HTTP from ALB
-      SecurityGroupEgress:
-        # Allow all outbound traffic
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-          Description: Allow all outbound traffic
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-gateway-sg"
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # -------------------------------------------------
   # Bastion Security Group
   # -------------------------------------------------
   BastionSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupName: !Sub "${ProjectName}-bastion-sg"
       GroupDescription: Security group for Bastion host
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -547,38 +521,21 @@ Resources:
           Value: !Ref ProjectName
 
   # -------------------------------------------------
-  # Base Security Group (for ECS base services)
+  # Gateway Security Group
   # -------------------------------------------------
-  BaseSecurityGroup:
+  GatewaySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for ECS base services (Eureka, Config Server, etc.)
+      GroupName: !Sub "${ProjectName}-gateway-sg"
+      GroupDescription: Security group for Gateway service
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        # Allow HTTP from Gateway
+        # Allow HTTP from ALB
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          SourceSecurityGroupId: !Ref GatewaySecurityGroup
-          Description: Allow HTTP from Gateway
-        # Allow Eureka port from Gateway
-        - IpProtocol: tcp
-          FromPort: 8761
-          ToPort: 8761
-          SourceSecurityGroupId: !Ref GatewaySecurityGroup
-          Description: Allow Eureka from Gateway
-        # Allow Config Server port from Gateway
-        - IpProtocol: tcp
-          FromPort: 8888
-          ToPort: 8888
-          SourceSecurityGroupId: !Ref GatewaySecurityGroup
-          Description: Allow Config Server from Gateway
-        # Allow RabbitMQ port from Gateway
-        - IpProtocol: tcp
-          FromPort: 5672
-          ToPort: 5672
-          SourceSecurityGroupId: !Ref GatewaySecurityGroup
-          Description: Allow RabbitMQ from Gateway
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Allow HTTP from ALB
       SecurityGroupEgress:
         # Allow all outbound traffic
         - IpProtocol: -1
@@ -586,7 +543,7 @@ Resources:
           Description: Allow all outbound traffic
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-base-sg"
+          Value: !Sub "${ProjectName}-gateway-sg"
         - Key: Environment
           Value: !Ref Environment
         - Key: Project
@@ -598,6 +555,7 @@ Resources:
   BusinessSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupName: !Sub "${ProjectName}-business-sg"
       GroupDescription: Security group for business services
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -622,11 +580,88 @@ Resources:
           Value: !Ref ProjectName
 
   # -------------------------------------------------
+  # Config Server Security Group (for Config Server)
+  # -------------------------------------------------
+  ConfigServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-config-server-sg"
+      GroupDescription: Security group for Config Server
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # Allow Config Server port from Gateway
+        - IpProtocol: tcp
+          FromPort: 8888
+          ToPort: 8888
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Allow Config Server from Gateway
+        # Allow Config Server port from Business services
+        - IpProtocol: tcp
+          FromPort: 8888
+          ToPort: 8888
+          SourceSecurityGroupId: !Ref BusinessSecurityGroup
+          Description: Allow Config Server from Business services
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-config-server-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # -------------------------------------------------
+  # Service Registry Security Group
+  # -------------------------------------------------
+  ServiceRegistrySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-service-registry-sg"
+      GroupDescription: Security group for Service Registry
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # Allow Eureka port from Gateway
+        - IpProtocol: tcp
+          FromPort: 8761
+          ToPort: 8761
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: Allow Eureka from Gateway
+        # Allow Eureka port from Business services
+        - IpProtocol: tcp
+          FromPort: 8761
+          ToPort: 8761
+          SourceSecurityGroupId: !Ref BusinessSecurityGroup
+          Description: Allow Eureka from Business services
+        # Allow Eureka port from Config Server
+        - IpProtocol: tcp
+          FromPort: 8761
+          ToPort: 8761
+          SourceSecurityGroupId: !Ref ConfigServerSecurityGroup
+          Description: Allow Eureka from Config Server
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-eureka-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # -------------------------------------------------
   # Database Security Group
   # -------------------------------------------------
   DatabaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupName: !Sub "${ProjectName}-database-sg"
       GroupDescription: Security group for MySQL database
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -636,12 +671,6 @@ Resources:
           ToPort: 3306
           SourceSecurityGroupId: !Ref BastionSecurityGroup
           Description: Allow MySQL from Bastion
-        # Allow MySQL from Base services (if needed)
-        - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          SourceSecurityGroupId: !Ref BaseSecurityGroup
-          Description: Allow MySQL from Base services
         # Allow MySQL from Business services
         - IpProtocol: tcp
           FromPort: 3306
@@ -656,6 +685,65 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-database-sg"
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # -------------------------------------------------
+  # Security Group for AWS MQ (RabbitMQ)
+  # -------------------------------------------------
+  MQSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-mq-sg"
+      GroupDescription: Security group for AWS MQ RabbitMQ broker
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # Allow RabbitMQ AMQP port (TLS)
+        - IpProtocol: tcp
+          FromPort: 5671
+          ToPort: 5671
+          SourceSecurityGroupId: !Ref ConfigServerSecurityGroup
+          Description: RabbitMQ AMQP (TLS) from Config Server
+        # Allow RabbitMQ AMQP port (TLS) from Gateway
+        - IpProtocol: tcp
+          FromPort: 5671
+          ToPort: 5671
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: RabbitMQ AMQP (TLS) from Gateway
+        # Allow RabbitMQ AMQP port (TLS) from Business services
+        - IpProtocol: tcp
+          FromPort: 5671
+          ToPort: 5671
+          SourceSecurityGroupId: !Ref BusinessSecurityGroup
+          Description: RabbitMQ AMQP (TLS) from Business services
+        # Allow RabbitMQ Management UI port (TLS) from Base services
+        - IpProtocol: tcp
+          FromPort: 15671
+          ToPort: 15671
+          SourceSecurityGroupId: !Ref ConfigServerSecurityGroup
+          Description: RabbitMQ Management UI (TLS) from Base services
+        # Allow RabbitMQ Management UI port (TLS) from Gateway
+        - IpProtocol: tcp
+          FromPort: 15671
+          ToPort: 15671
+          SourceSecurityGroupId: !Ref GatewaySecurityGroup
+          Description: RabbitMQ Management UI (TLS) from Gateway
+        # Allow RabbitMQ Management UI from bastion
+        - IpProtocol: tcp
+          FromPort: 15671
+          ToPort: 15671
+          SourceSecurityGroupId: !Ref BusinessSecurityGroup
+          Description: RabbitMQ Management UI (TLS) from Bastion
+      SecurityGroupEgress:
+        # Allow all outbound traffic
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-mq-sg"
         - Key: Environment
           Value: !Ref Environment
         - Key: Project
@@ -826,6 +914,12 @@ Outputs:
     Export:
       Name: !Sub "${ProjectName}-servicediscovery-namespace-id"
 
+  ServiceDiscoveryHostedZoneId:
+    Description: Service Discovery Private DNS Namespace Hosted Zone ID
+    Value: !GetAtt ServiceDiscoveryNamespace.HostedZoneId
+    Export:
+      Name: !Sub "${ProjectName}-servicediscovery-hosted-zone-id"
+
   PublicSubnets:
     Description: Public Subnet IDs (comma-separated)
     Value: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2]]
@@ -922,11 +1016,17 @@ Outputs:
     Export:
       Name: !Sub "${ProjectName}-bastion-sg"
 
-  BaseSecurityGroupId:
-    Description: Security Group ID for Base services
-    Value: !Ref BaseSecurityGroup
+  ServiceRegistrySecurityGroupId:
+    Description: Security Group ID for Eureka Service Registry
+    Value: !Ref ServiceRegistrySecurityGroup
     Export:
-      Name: !Sub "${ProjectName}-base-sg"
+      Name: !Sub "${ProjectName}-service-registry-sg"
+
+  ConfigServerSecurityGroupId:
+    Description: Security Group ID for Config Server
+    Value: !Ref ConfigServerSecurityGroup
+    Export:
+      Name: !Sub "${ProjectName}-config-server-sg"
 
   GatewaySecurityGroupId:
     Description: Security Group ID for Gateway
@@ -945,3 +1045,9 @@ Outputs:
     Value: !Ref DatabaseSecurityGroup
     Export:
       Name: !Sub "${ProjectName}-database-sg"
+
+  MQSecurityGroupId:
+    Description: Security Group ID for MQ
+    Value: !Ref MQSecurityGroup
+    Export:
+      Name: !Sub "${ProjectName}-mq-sg"

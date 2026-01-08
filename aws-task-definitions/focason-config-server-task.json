@@ -22,7 +22,7 @@
         },
         {
           "name": "RABBITMQ_HOST",
-          "value": "b-72880c7a-7b31-4a73-9edf-44d1dfe410d8.mq.ap-northeast-1.on.aws"
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-1:442426889980:secret:focason-cloud-secret-vOqQte:RABBITMQ_HOST::"
         },
         {
           "name": "RABBITMQ_PORT",
@@ -30,11 +30,11 @@
         },
         {
           "name": "RABBITMQ_USERNAME",
-          "value": "admin"
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-1:442426889980:secret:focason-cloud-secret-vOqQte:RABBITMQ_USERNAME::"
         },
         {
           "name": "RABBITMQ_PASSWORD",
-          "value": "LnFhsXYur8nM"
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-1:442426889980:secret:focason-cloud-secret-vOqQte:RABBITMQ_PASSWORD::"
         },
         {
           "name": "RABBITMQ_SSL",
